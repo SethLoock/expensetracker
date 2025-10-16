@@ -1,0 +1,455 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Expense Tracker</title>
+
+  <!-- PWA bits -->
+  <link rel="manifest" href="manifest.json">
+  <meta name="theme-color" content="#111111"/>
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black">
+  <link rel="apple-touch-icon" href="icons/icon-192.png">
+
+  <style>
+    :root { --card:#fff; --bg:#f4f6f9; --muted:#666; }
+    * { box-sizing: border-box; }
+    body { font-family: Arial, sans-serif; margin: 0; background: var(--bg); color:#111; }
+    header { background:#1f2937; color:#fff; padding:16px 20px; }
+    header h1 { margin:0; font-size:20px; }
+    .container { max-width: 920px; margin: 20px auto; padding: 20px; background: var(--card); border-radius: 10px; box-shadow: 0 2px 6px rgba(0,0,0,.08); }
+    nav { display:flex; gap:8px; margin-bottom:16px; flex-wrap:wrap; }
+    nav button { padding:10px 14px; border:1px solid #ccc; background:#fafafa; border-radius:8px; cursor:pointer; }
+    nav button.active { background:#111; color:#fff; border-color:#111; }
+    label { display:block; margin:10px 0 6px; font-weight:600; }
+    input, select, button { padding:10px; border:1px solid #ddd; border-radius:8px; }
+    input, select { width:100%; }
+    .grid { display:grid; grid-template-columns: 1fr 1fr; gap:12px; }
+    .row { display:flex; gap:8px; flex-wrap: wrap; }
+    .actions { display:flex; gap:8px; margin-top:10px; }
+    table { width:100%; border-collapse: collapse; margin-top: 10px; }
+    th, td { border:1px solid #eee; padding:10px; text-align:left; }
+    th { background:#f8f8f8; }
+    .summary-cards { display:grid; grid-template-columns: repeat(3, 1fr); gap:12px; margin-top:14px; }
+    .card { padding:14px; border:1px solid #eee; border-radius:10px; background:#fafafa; }
+    .card h3 { margin:0 0 6px; font-size:14px; color:#333; }
+    .card .value { font-size:22px; font-weight:700; }
+    .income { color: #0a7a26; }
+    .expense { color: #b00020; }
+    .balance { color: #0a3a7a; }
+    .muted { color: var(--muted); font-size: 12px; }
+    .right { text-align:right; }
+    .center { text-align:center; }
+    .hidden { display:none; }
+    .pill { font-size:12px; background:#eef2ff; padding:2px 8px; border-radius:999px; }
+    .link { color:#0a3a7a; cursor:pointer; text-decoration:underline; }
+    .nowrap { white-space: nowrap; }
+    @media (max-width:720px){ .grid{grid-template-columns:1fr;} .summary-cards{grid-template-columns:1fr;} }
+    @media print {
+      nav, .actions, .no-print, .footer { display:none !important; }
+      .container { box-shadow: none; }
+      header { background: #000 !important; color: #fff !important; }
+    }
+  </style>
+</head>
+<body>
+  <header><h1>Expense Tracker</h1></header>
+
+  <div class="container">
+    <nav>
+      <button id="tab-add" class="active" onclick="showTab('add')">Add Transaction</button>
+      <button id="tab-list" onclick="showTab('list')">All Transactions</button>
+      <button id="tab-monthly" onclick="showTab('monthly')">Monthly Summary</button>
+    </nav>
+
+    <!-- Add Transaction -->
+    <section id="tab-add-content">
+      <div class="grid">
+        <div>
+          <label for="item">Item/Description</label>
+          <input type="text" id="item" placeholder="e.g. Coffee">
+        </div>
+        <div>
+          <label for="amount">Amount ($)</label>
+          <input type="number" id="amount" placeholder="e.g. 4.50" step="0.01" min="0.01">
+        </div>
+      </div>
+
+      <div class="grid">
+        <div>
+          <label for="date">Date</label>
+          <input type="date" id="date">
+        </div>
+        <div>
+          <label for="type">Type</label>
+          <select id="type">
+            <option value="Expense">Expense</option>
+            <option value="Income">Income</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="actions">
+        <button onclick="addTransaction()">Add Transaction</button>
+        <button onclick="clearForm()" type="button">Clear</button>
+      </div>
+
+      <div class="summary-cards">
+        <div class="card">
+          <h3>Total Income (All)</h3>
+          <div class="value income">$<span id="totalIncome">0.00</span></div>
+        </div>
+        <div class="card">
+          <h3>Total Expense (All)</h3>
+          <div class="value expense">$<span id="totalExpense">0.00</span></div>
+        </div>
+        <div class="card">
+          <h3>Net Balance (All)</h3>
+          <div class="value balance">$<span id="netBalance">0.00</span></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- All Transactions (itemized) -->
+    <section id="tab-list-content" class="hidden">
+      <div class="row no-print" style="justify-content: space-between; align-items: center;">
+        <div class="muted">Showing <span id="listScopeLabel">All transactions</span></div>
+        <div class="row">
+          <input id="searchBox" placeholder="Search item..." oninput="renderTable()"/>
+          <button onclick="clearFilter()">Clear Filter</button>
+        </div>
+      </div>
+      <table id="transactions">
+        <thead>
+          <tr>
+            <th>Date</th>
+            <th>Item</th>
+            <th>Type</th>
+            <th class="right">Amount</th>
+            <th class="center no-print">Actions</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+
+      <div class="row footer no-print" style="justify-content:flex-end;">
+        <button onclick="downloadAllCSV()">Download All (CSV)</button>
+        <button onclick="shareAllCSV()">Share All (CSV)</button>
+        <button onclick="printPage()">Print / Save PDF</button>
+        <button onclick="exportJSON()">Export JSON</button>
+        <button onclick="confirmImport()">Import JSON</button>
+        <button onclick="confirmClearAll()">Clear All</button>
+      </div>
+
+      <div class="muted">Tip: If you filtered to one month, “Download All (CSV)” gives that filtered month only.</div>
+    </section>
+
+    <!-- Monthly Summary -->
+    <section id="tab-monthly-content" class="hidden">
+      <p class="muted">Grouped by calendar month. Tap a month to view its itemized list or download/share a monthly CSV.</p>
+      <table id="monthlyTable">
+        <thead>
+          <tr>
+            <th>Month</th>
+            <th class="right">Income</th>
+            <th class="right">Expense</th>
+            <th class="right">Net</th>
+            <th class="right">Count</th>
+            <th class="center no-print">Downloads</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+
+      <div class="row footer no-print" style="justify-content:flex-end;">
+        <button onclick="downloadMonthlyCSVAll()">Download All Months (CSV)</button>
+        <button onclick="printPage()">Print / Save PDF</button>
+      </div>
+    </section>
+  </div>
+
+  <script>
+    // --------- PWA SW registration ---------
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('service-worker.js').catch(()=>{});
+      });
+    }
+
+    // --------- Persistence helpers ---------
+    const LS_KEY = 'expense-tracker-transactions-v2';
+    function save() { localStorage.setItem(LS_KEY, JSON.stringify(transactions)); }
+    function load() {
+      try { return JSON.parse(localStorage.getItem(LS_KEY) || '[]'); }
+      catch { return []; }
+    }
+
+    // --------- State ---------
+    let transactions = load(); // {id, item, amount, type, date}
+    let monthFilter = null;    // 'YYYY-MM' or null
+
+    // --------- Utils ---------
+    function fmtMoney(n){ return (n||0).toFixed(2); }
+    function todayISO(){
+      const d = new Date();
+      const m = (d.getMonth()+1).toString().padStart(2,'0');
+      const day = d.getDate().toString().padStart(2,'0');
+      return `${d.getFullYear()}-${m}-${day}`;
+    }
+    function monthKeyFromISO(iso){ return iso?.slice(0,7); }
+    function monthLabel(key){
+      const [y,m] = key.split('-').map(Number);
+      return new Date(y, m-1, 1).toLocaleDateString(undefined,{year:'numeric', month:'long'});
+    }
+    function csvEscape(v){
+      if (v == null) return '';
+      const s = String(v);
+      return /[",\n]/.test(s) ? `"${s.replace(/"/g,'""')}"` : s;
+    }
+    function toCSV(rows, headers){
+      let out = headers.join(',') + '\n';
+      for (const r of rows) out += r.map(csvEscape).join(',') + '\n';
+      return out;
+    }
+    async function shareOrDownload(filename, blob){
+      // Try Web Share (iOS Share sheet), fall back to download
+      const file = new File([blob], filename, {type: blob.type});
+      if (navigator.canShare && navigator.canShare({ files: [file] }) && navigator.share) {
+        try { await navigator.share({ files: [file], title: filename }); return; } catch {}
+      }
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = filename; a.click();
+      URL.revokeObjectURL(url);
+    }
+    function printPage(){ window.print(); }
+
+    // --------- Tabs ---------
+    function showTab(name){
+      const tabs = ['add','list','monthly'];
+      tabs.forEach(t=>{
+        document.getElementById(`tab-${t}`).classList.toggle('active', t===name);
+        document.getElementById(`tab-${t}-content`).classList.toggle('hidden', t!==name);
+      });
+      if(name==='add'){ updateTotals(); }
+      if(name==='list'){ renderTable(); }
+      if(name==='monthly'){ renderMonthly(); }
+    }
+
+    // --------- Form ---------
+    function clearForm(){
+      document.getElementById('item').value = '';
+      document.getElementById('amount').value = '';
+      document.getElementById('type').value = 'Expense';
+      document.getElementById('date').value = todayISO();
+    }
+    function addTransaction(){
+      const item = document.getElementById('item').value.trim();
+      const amountStr = document.getElementById('amount').value.trim();
+      const type = document.getElementById('type').value;
+      const date = document.getElementById('date').value || todayISO();
+
+      if(!item || !amountStr){ alert('Please fill out item and amount.'); return; }
+
+      const amount = parseFloat(amountStr);
+      if(isNaN(amount) || amount <= 0){ alert('Enter a valid positive amount.'); return; }
+
+      const tx = {
+        id: crypto.randomUUID ? crypto.randomUUID() : String(Date.now())+'_'+Math.random().toString(36).slice(2),
+        item, amount, type, date
+      };
+      transactions.push(tx);
+      save();
+      clearForm();
+      updateTotals();
+      showTab('list'); // feedback
+    }
+
+    // --------- Totals / Summary ---------
+    function computeTotals(list){
+      let income = 0, expense = 0;
+      list.forEach(tx => tx.type === 'Income' ? income += tx.amount : expense += tx.amount);
+      return { income, expense, net: income - expense };
+    }
+    function updateTotals(){
+      const { income, expense, net } = computeTotals(transactions);
+      document.getElementById('totalIncome').textContent = fmtMoney(income);
+      document.getElementById('totalExpense').textContent = fmtMoney(expense);
+      document.getElementById('netBalance').textContent = fmtMoney(net);
+    }
+
+    // --------- Table (Itemized) ---------
+    function renderTable(){
+      const tbody = document.querySelector('#transactions tbody');
+      const q = (document.getElementById('searchBox').value || '').toLowerCase();
+      tbody.innerHTML = '';
+
+      let list = transactions.slice();
+      if(monthFilter){
+        list = list.filter(tx => monthKeyFromISO(tx.date) === monthFilter);
+        document.getElementById('listScopeLabel').textContent = `${monthLabel(monthFilter)} (filtered)`;
+      } else {
+        document.getElementById('listScopeLabel').textContent = 'All transactions';
+      }
+      if(q){
+        list = list.filter(tx => tx.item.toLowerCase().includes(q));
+      }
+      // Newest first
+      list.sort((a,b)=> a.date<b.date ? 1 : a.date>b.date ? -1 : 0);
+
+      for(const tx of list){
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td class="nowrap">${tx.date}</td>
+          <td>${tx.item}</td>
+          <td><span class="pill">${tx.type}</span></td>
+          <td class="right">$${fmtMoney(tx.amount)}</td>
+          <td class="center no-print"><button onclick="deleteTx('${tx.id}')">Delete</button></td>
+        `;
+        tbody.appendChild(tr);
+      }
+    }
+    function deleteTx(id){
+      if(!confirm('Delete this transaction?')) return;
+      const idx = transactions.findIndex(t=>t.id===id);
+      if(idx>-1){ transactions.splice(idx,1); save(); }
+      updateTotals();
+      renderTable();
+      renderMonthly();
+    }
+    function clearFilter(){
+      monthFilter = null;
+      renderTable();
+    }
+
+    // --------- Monthly Summary ---------
+    function groupByMonth(){
+      const map = new Map(); // key -> array of tx
+      for(const tx of transactions){
+        const key = monthKeyFromISO(tx.date || todayISO());
+        if(!map.has(key)) map.set(key, []);
+        map.get(key).push(tx);
+      }
+      return map;
+    }
+    function renderMonthly(){
+      const tbody = document.querySelector('#monthlyTable tbody');
+      tbody.innerHTML = '';
+      const grouped = groupByMonth();
+      const keys = Array.from(grouped.keys()).sort((a,b)=> a<b?1: a>b?-1:0);
+
+      for(const key of keys){
+        const list = grouped.get(key);
+        const { income, expense, net } = computeTotals(list);
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td>
+            <span class="link" onclick="openMonth('${key}')">${monthLabel(key)}</span>
+          </td>
+          <td class="right">$${fmtMoney(income)}</td>
+          <td class="right">$${fmtMoney(expense)}</td>
+          <td class="right">$${fmtMoney(net)}</td>
+          <td class="right">${list.length}</td>
+          <td class="center no-print">
+            <button onclick="downloadMonthCSV('${key}')">CSV</button>
+            <button onclick="shareMonthCSV('${key}')">Share</button>
+          </td>
+        `;
+        tbody.appendChild(tr);
+      }
+      if(keys.length===0){
+        const tr = document.createElement('tr');
+        tr.innerHTML = `<td colspan="6" class="center muted">No data yet. Add a transaction.</td>`;
+        tbody.appendChild(tr);
+      }
+    }
+    function openMonth(key){
+      monthFilter = key;
+      showTab('list');
+    }
+
+    // --------- Downloads / Shares (CSV) ---------
+    function rowsFor(list){
+      return list.map(tx => [tx.date, tx.item, tx.type, tx.amount.toFixed(2)]);
+    }
+    function downloadAllCSV(){
+      let list = transactions.slice();
+      if(monthFilter) list = list.filter(tx => monthKeyFromISO(tx.date) === monthFilter);
+      const csv = toCSV(rowsFor(list), ['Date','Item','Type','Amount']);
+      const blob = new Blob([csv], {type:'text/csv'});
+      const name = monthFilter ? `transactions_${monthFilter}.csv` : 'transactions_all.csv';
+      shareOrDownload(name, blob);
+    }
+    function shareAllCSV(){ downloadAllCSV(); }
+
+    function downloadMonthCSV(key){
+      const list = transactions.filter(tx => monthKeyFromISO(tx.date) === key);
+      const csv = toCSV(rowsFor(list), ['Date','Item','Type','Amount']);
+      const blob = new Blob([csv], {type:'text/csv'});
+      shareOrDownload(`transactions_${key}.csv`, blob);
+    }
+    function shareMonthCSV(key){ downloadMonthCSV(key); }
+
+    function downloadMonthlyCSVAll(){
+      // One CSV summarizing by month
+      const grouped = groupByMonth();
+      const keys = Array.from(grouped.keys()).sort();
+      const rows = [];
+      for (const key of keys){
+        const tots = computeTotals(grouped.get(key));
+        rows.push([key, fmtMoney(tots.income), fmtMoney(tots.expense), fmtMoney(tots.net), grouped.get(key).length]);
+      }
+      const csv = toCSV(rows, ['Month','Income','Expense','Net','Count']);
+      shareOrDownload('monthly_summary.csv', new Blob([csv], {type:'text/csv'}));
+    }
+
+    // --------- Export / Import / Clear ---------
+    function exportJSON(){
+      const data = JSON.stringify(transactions, null, 2);
+      shareOrDownload('expense-tracker-export.json', new Blob([data], {type:'application/json'}));
+    }
+    function confirmImport(){
+      const input = document.createElement('input');
+      input.type = 'file';
+      input.accept = 'application/json';
+      input.onchange = async (e)=>{
+        const file = e.target.files[0];
+        if(!file) return;
+        try{
+          const text = await file.text();
+          const parsed = JSON.parse(text);
+          if(!Array.isArray(parsed)) throw new Error('Invalid format');
+          const seen = new Set(transactions.map(t=>t.id));
+          for(const obj of parsed){
+            if(!obj || typeof obj!=='object') continue;
+            if(!obj.id){ obj.id = String(Date.now())+'_'+Math.random().toString(36).slice(2); }
+            if(seen.has(obj.id)) continue;
+            if(typeof obj.item!=='string' || typeof obj.amount!=='number' || !obj.type || !obj.date) continue;
+            transactions.push(obj);
+            seen.add(obj.id);
+          }
+          save(); updateTotals(); renderTable(); renderMonthly();
+          alert('Import complete.');
+        }catch(err){
+          alert('Import failed: '+err.message);
+        }
+      };
+      input.click();
+    }
+    function confirmClearAll(){
+      if(!confirm('This will delete ALL transactions. Continue?')) return;
+      transactions = [];
+      save(); updateTotals(); renderTable(); renderMonthly();
+    }
+
+    // --------- Init ---------
+    (function init(){
+      document.getElementById('date').value = todayISO();
+      updateTotals();
+      renderTable();
+      renderMonthly();
+    })();
+  </script>
+</body>
+</html>
